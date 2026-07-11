@@ -1,0 +1,13 @@
+appId: ai.opencode.screenshot-translator
+productName: ScreenshotTranslator
+directories:
+  output: release
+files:
+  - dist/**/*
+  - assets/**/*
+win:
+  target: nsis
+  icon: assets/tray-icon.png
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true

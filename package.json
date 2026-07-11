@@ -1,0 +1,28 @@
+{
+  "name": "screenshot-translator",
+  "version": "0.1.0",
+  "description": "Multimodal screenshot translator using OpenCode Go (kimi-k2.7-code)",
+  "main": "dist/main/index.js",
+  "author": "",
+  "license": "MIT",
+  "scripts": {
+    "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
+    "copy-assets": "node scripts/copy-assets.js",
+    "build": "npm run clean && tsc -p tsconfig.main.json && tsc -p tsconfig.renderer.json && npm run copy-assets",
+    "build:main": "tsc -p tsconfig.main.json",
+    "build:renderer": "tsc -p tsconfig.renderer.json",
+    "watch": "tsc -p tsconfig.main.json --watch & tsc -p tsconfig.renderer.json --watch",
+    "start": "npm run build && electron .",
+    "dev": "npm run build && electron .",
+    "dist": "npm run build && electron-builder"
+  },
+  "dependencies": {
+    "electron-store": "8.2.0"
+  },
+  "devDependencies": {
+    "electron": "33.2.1",
+    "electron-builder": "25.1.8",
+    "typescript": "5.6.3",
+    "@types/node": "22.10.2"
+  }
+}

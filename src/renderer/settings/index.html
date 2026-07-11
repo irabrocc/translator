@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="zh">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'"
+    />
+    <link rel="stylesheet" href="settings.css" />
+  </head>
+  <body>
+    <h2>截图翻译 设置</h2>
+    <section>
+      <label>OpenCode Go API Key</label>
+      <input type="password" id="apiKey" placeholder="粘贴你的 Go API Key" />
+      <small>从 <a id="goLink" href="#">opencode.ai/auth</a> 获取。保存在本地。</small>
+    </section>
+
+    <section>
+      <label>模型</label>
+      <select id="model">
+        <option value="minimax-m3">MiniMax M3 (推荐，图像识别稳定)</option>
+        <option value="kimi-k2.7-code">Kimi K2.7 Code</option>
+        <option value="kimi-k2.6">Kimi K2.6</option>
+        <option value="qwen3.7-max">Qwen3.7 Max</option>
+        <option value="minimax-m2.7">MiniMax M2.7</option>
+      </select>
+      <small>端点自动选择（OpenAI/Anthropic 协议）。默认 MiniMax M3。</small>
+      <input type="text" id="endpoint" placeholder="端点（留空自动）" />
+    </section>
+
+    <section>
+      <label>快捷键</label>
+      <div class="row"><span>截图</span><input type="text" id="scScreenshot" /></div>
+      <div class="row"><span>切换快速/思考模式</span><input type="text" id="scQuick" /></div>
+      <div class="row"><span>切换源语言</span><input type="text" id="scSource" /></div>
+      <div class="row"><span>切换目标语言</span><input type="text" id="scTarget" /></div>
+      <small>格式如 Alt+S / Ctrl+Shift+T。Alt+Q 切换快速（无思考）/思考模式。修改后关闭设置窗口生效。</small>
+    </section>
+
+    <section>
+      <label>默认语言</label>
+      <div class="row"><span>当前源语言</span><select id="curSource"></select></div>
+      <div class="row"><span>当前目标语言</span><select id="curTarget"></select></div>
+    </section>
+
+    <div class="actions">
+      <button id="save">保存</button>
+      <button id="reset" class="ghost">恢复默认</button>
+    </div>
+    <div id="status"></div>
+    <script type="module" src="settings.js"></script>
+  </body>
+</html>

@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="zh">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'"
+    />
+    <link rel="stylesheet" href="overlay.css" />
+  </head>
+  <body>
+    <div id="header">
+      <span id="title">翻译结果</span>
+      <span id="close" title="关闭 (Esc)">×</span>
+    </div>
+    <div id="loading">识别中…</div>
+    <div id="content" hidden>
+      <div class="block">
+        <div class="label"><span id="srcLabel">识别结果</span><button class="copy" data-target="src">复制</button></div>
+        <div class="text" id="src"></div>
+      </div>
+      <div class="block">
+        <div class="label"><span id="tgtLabel">翻译</span><button class="copy" data-target="tgt">复制</button></div>
+        <div class="text" id="tgt"></div>
+      </div>
+      <div id="error" hidden></div>
+    </div>
+    <script type="module" src="overlay.js"></script>
+  </body>
+</html>
