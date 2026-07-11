@@ -128,11 +128,9 @@ function ensureStatusWindow(): BrowserWindow {
   if (statusWindow && !statusWindow.isDestroyed()) return statusWindow
   const primary = screen.getPrimaryDisplay()
   const w = 220
-  const h = 32
-  const wa = primary.workArea // workArea excludes the taskbar
-  const b = primary.bounds // full screen bounds
-  // workArea.height < bounds.height when taskbar is at bottom
-  // Place the badge on the taskbar itself (between workArea bottom and screen bottom)
+  const h = 36
+  const wa = primary.workArea
+  const b = primary.bounds
   const y = wa.y + wa.height + Math.max(0, (b.height - wa.y - wa.height - h) / 2)
   statusWindow = new BrowserWindow({
     x: wa.x + 8,
@@ -252,10 +250,10 @@ function ensureOverlay(): BrowserWindow {
     height: 220,
     frame: false,
     transparent: false,
-    alwaysOnTop: true,
-    skipTaskbar: true,
     resizable: false,
+    skipTaskbar: false,
     show: false,
+    title: "翻译结果",
     backgroundColor: "#1e1e2e",
     webPreferences: {
       preload: path.join(__dirname, "..", "preload", "preload.js"),
@@ -263,11 +261,9 @@ function ensureOverlay(): BrowserWindow {
       nodeIntegration: false,
     },
   })
-  overlayWindow.setAlwaysOnTop(true, "screen-saver")
   overlayWindow.loadURL(
     `file://${path.join(__dirname, "..", "renderer", "overlay", "index.html")}`,
   )
-  // Send pending data once renderer is loaded
   overlayWindow.webContents.once("did-finish-load", () => {
     console.log("[overlay] renderer did-finish-load")
     overlayWindow?.webContents.on("console-message", (_e, _level, msg) => {
@@ -313,6 +309,7 @@ function showOverlayLoading(near: { x: number; y: number; width: number; height:
   win.setBounds({ x, y, width: 360, height: 220 })
   win.show()
   win.focus()
+  win.moveTop()
   console.log("[overlay] window shown, isVisible:", win.isVisible(), "bounds:", JSON.stringify(win.getBounds()))
   sendToOverlay({
     detected: "",
@@ -337,6 +334,7 @@ function showOverlayResult(r: {
   if (!win.isVisible()) {
     win.show()
     win.focus()
+    win.moveTop()
   }
   sendToOverlay({ ...r, loading: false })
 }
