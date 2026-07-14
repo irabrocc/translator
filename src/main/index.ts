@@ -9,9 +9,11 @@ import {
   shell,
   clipboard,
   screen,
+  dialog,
   Notification,
 } from "electron"
 import path from "node:path"
+import fs from "node:fs"
 import {
   getSettings,
   setSettings,
@@ -24,18 +26,21 @@ import {
   cycleLanguage,
   findLanguage,
 } from "./languages"
-import { translateScreenshot } from "./api"
+import { translateScreenshot, parseMath } from "./api"
 import {
   initScreenshotModule,
   startSelection,
   closeSelection,
+  CaptureMode,
 } from "./screenshot"
 
 let tray: Tray | null = null
 let overlayWindow: BrowserWindow | null = null
+let mathWindow: BrowserWindow | null = null
 let settingsWindow: BrowserWindow | null = null
 let statusWindow: BrowserWindow | null = null
 let pendingOverlayData: any = null
+let pendingMathData: any = null
 
 // Persistent toggle: when true, captures run without reasoning (quick mode)
 let quickMode = false
@@ -73,6 +78,10 @@ function updateTrayMenu() {
     {
       label: "截图翻译",
       click: () => triggerScreenshot(),
+    },
+    {
+      label: "数学解析 (MD/TeX)",
+      click: () => triggerMathCapture(),
     },
     {
       label: `模式: ${quickMode ? "快速 (F)" : "思考 (T)"} — 点击切换`,
@@ -119,6 +128,9 @@ function registerShortcuts() {
   tryReg(s.shortcuts.screenshot, triggerScreenshot)
   if (s.shortcuts.quickScreenshot && s.shortcuts.quickScreenshot !== s.shortcuts.screenshot) {
     tryReg(s.shortcuts.quickScreenshot, toggleQuickMode)
+  }
+  if (s.shortcuts.math && s.shortcuts.math !== s.shortcuts.screenshot) {
+    tryReg(s.shortcuts.math, triggerMathCapture)
   }
   tryReg(s.shortcuts.cycleSource, cycleSource)
   tryReg(s.shortcuts.cycleTarget, cycleTarget)
@@ -200,8 +212,24 @@ function triggerScreenshot() {
     openSettings()
     return
   }
-  startSelection().catch((e) => {
+  startSelection("translate").catch((e) => {
     console.error("[screenshot] start selection failed", e)
+  })
+}
+
+function triggerMathCapture() {
+  console.log("[math] Alt+M triggered, quickMode:", quickMode)
+  if (!getSettings().goApiKey) {
+    console.log("[math] no API key, opening settings")
+    new Notification({
+      title: "未配置 API Key",
+      body: "请先在设置中填入 OpenCode Go API Key。",
+    }).show()
+    openSettings()
+    return
+  }
+  startSelection("math").catch((e) => {
+    console.error("[math] start selection failed", e)
   })
 }
 
@@ -339,6 +367,122 @@ function showOverlayResult(r: {
   sendToOverlay({ ...r, loading: false })
 }
 
+function ensureMathWindow(): BrowserWindow {
+  if (mathWindow && !mathWindow.isDestroyed()) return mathWindow
+  mathWindow = new BrowserWindow({
+    width: 580,
+    height: 460,
+    frame: false,
+    transparent: false,
+    resizable: true,
+    minWidth: 360,
+    minHeight: 240,
+    skipTaskbar: false,
+    show: false,
+    title: "数学解析结果",
+    backgroundColor: "#1e1e2e",
+    webPreferences: {
+      preload: path.join(__dirname, "..", "preload", "preload.js"),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  })
+  mathWindow.loadURL(
+    `file://${path.join(__dirname, "..", "renderer", "math", "index.html")}`,
+  )
+  mathWindow.webContents.once("did-finish-load", () => {
+    console.log("[math] renderer did-finish-load")
+    mathWindow?.webContents.on("console-message", (_e, _level, msg) => {
+      console.log("[math:renderer]", msg)
+    })
+    if (pendingMathData) {
+      console.log("[math] sending pending data after load")
+      mathWindow?.webContents.send("math:result", pendingMathData)
+      pendingMathData = null
+    }
+  })
+  mathWindow.on("closed", () => {
+    mathWindow = null
+  })
+  return mathWindow
+}
+
+function sendToMath(data: any) {
+  const win = ensureMathWindow()
+  if (win.webContents.isLoading()) {
+    pendingMathData = data
+  } else {
+    win.webContents.send("math:result", data)
+  }
+}
+
+function showMathLoading(near: { x: number; y: number; width: number; height: number }) {
+  console.log("[math] showMathLoading near:", JSON.stringify(near))
+  const win = ensureMathWindow()
+  const [w, h] = win.getSize()
+  const display = screen.getDisplayMatching({
+    x: near.x,
+    y: near.y,
+    width: near.width,
+    height: near.height,
+  })
+  const db = display.bounds
+  let x = near.x + near.width + 8
+  let y = near.y
+  if (x + w > db.x + db.width) x = near.x - w - 8
+  if (x < db.x) x = db.x + 8
+  if (y + h > db.y + db.height) y = db.y + db.height - h - 8
+  if (y < db.y) y = db.y + 8
+  win.setBounds({ x, y, width: w, height: h })
+  win.show()
+  win.focus()
+  win.moveTop()
+  sendToMath({ markdown: "", latex: "", loading: true, defaultFormat: getSettings().math?.outputFormat ?? "md" })
+}
+
+function showMathResult(r: {
+  markdown: string
+  latex: string
+  error?: string
+}) {
+  console.log("[math] showMathResult, md len:", r.markdown.length, "tex len:", r.latex.length, "error:", r.error ?? "none")
+  const win = ensureMathWindow()
+  if (!win.isVisible()) {
+    win.show()
+    win.focus()
+    win.moveTop()
+  }
+  sendToMath({ ...r, loading: false, defaultFormat: getSettings().math?.outputFormat ?? "md" })
+}
+
+async function onMathCaptured(
+  base64: string,
+  rect: { x: number; y: number; width: number; height: number },
+) {
+  console.log("[onMathCaptured] rect:", JSON.stringify(rect), "base64 len:", base64.length)
+  const s = getSettings()
+  showMathLoading(rect)
+  try {
+    const quick = quickMode
+    console.log("[onMathCaptured] calling API, model:", s.model, "quickMode:", quick)
+    const res = await parseMath(base64, {
+      apiKey: s.goApiKey,
+      endpoint: s.endpoint,
+      model: s.model,
+      quickMode: quick,
+    })
+    console.log("[onMathCaptured] API result: md len:", res.markdown.length, "tex len:", res.latex.length)
+    showMathResult({ markdown: res.markdown, latex: res.latex })
+  } catch (e: any) {
+    console.error("[onMathCaptured] API error:", e?.message)
+    showMathResult({
+      markdown: "",
+      latex: "",
+      error: e?.message ?? String(e),
+    })
+  }
+}
+
 async function onCaptured(
   base64: string,
   rect: { x: number; y: number; width: number; height: number },
@@ -386,7 +530,7 @@ function openSettings() {
   }
   settingsWindow = new BrowserWindow({
     width: 640,
-    height: 560,
+    height: 620,
     title: "设置",
     resizable: false,
     minimizable: false,
@@ -410,11 +554,46 @@ function openSettings() {
 }
 
 function setupIpc() {
-  initScreenshotModule(onCaptured)
+  initScreenshotModule((base64, rect, mode: CaptureMode) => {
+    if (mode === "math") onMathCaptured(base64, rect)
+    else onCaptured(base64, rect)
+  })
 
   ipcMain.on("overlay:close", () => overlayWindow?.hide())
   ipcMain.on("overlay:copy", (_e, text: string) => {
     if (text) clipboard.writeText(text)
+  })
+
+  ipcMain.on("math:close", () => mathWindow?.hide())
+  ipcMain.on("math:copy", (_e, text: string) => {
+    if (text) clipboard.writeText(text)
+  })
+  ipcMain.on("math:set-format", (_e, format: string) => {
+    const fmt = format === "tex" ? "tex" : "md"
+    const cur = getSettings().math?.outputFormat
+    if (cur === fmt) return
+    setSettings({ math: { outputFormat: fmt } })
+    console.log("[math] persisted default format:", fmt)
+  })
+  ipcMain.handle("math:save", async (_e, content: string, format: string) => {
+    const win = mathWindow
+    if (!win || win.isDestroyed() || !content) return
+    const ext = format === "tex" ? "tex" : "md"
+    const label = format === "tex" ? "LaTeX" : "Markdown"
+    const result = await dialog.showSaveDialog(win, {
+      defaultPath: `math-output.${ext}`,
+      filters: [{ name: label, extensions: [ext] }],
+    })
+    if (!result.canceled && result.filePath) {
+      try {
+        fs.writeFileSync(result.filePath, content, "utf-8")
+        return result.filePath
+      } catch (e: any) {
+        console.error("[math:save] write failed:", e?.message)
+        throw new Error(e?.message ?? String(e))
+      }
+    }
+    return null
   })
 
   ipcMain.handle("settings:get", () => getSettings())

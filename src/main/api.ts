@@ -7,12 +7,20 @@ export interface TranslationResult {
   raw?: string
 }
 
+export interface MathResult {
+  markdown: string
+  latex: string
+  raw?: string
+}
+
 export type ProviderKind = "openai" | "anthropic"
 
-export interface ModelConfig {
+export interface VisionCallOpts {
+  apiKey: string
   model: string
-  endpoint: string
-  kind: ProviderKind
+  endpoint?: string
+  quickMode?: boolean
+  maxTokens?: number
 }
 
 const OPENAI_ENDPOINT = "https://opencode.ai/zen/go/v1/chat/completions"
@@ -66,26 +74,56 @@ function buildPrompt(source: LanguageDef, target: LanguageDef): string {
   ].join(" ")
 }
 
+function buildMathPrompt(): string {
+  return [
+    "You are a math OCR assistant specialized in extracting mathematical content from images.",
+    "Extract ALL visible mathematical content from the image, including surrounding explanatory text and formulas.",
+    "Preserve the structure and hierarchy (headings, lists, numbered equations, align blocks, etc.).",
+    "Return a JSON object with exactly these fields:",
+    '"markdown": the content in Markdown format. Use $...$ for inline math and $$...$$ for display equations. Use proper LaTeX commands inside math delimiters.',
+    '"latex": the content as a compile-ready LaTeX document. Include \\documentclass{article}, \\usepackage{amsmath,amssymb}, and proper math environments ($...$, \\[...\\], equation, align, etc.).',
+    "Return ONLY the JSON object, no markdown fences, no extra text.",
+  ].join(" ")
+}
+
 export async function translateScreenshot(
   imageBase64: string,
   source: LanguageDef,
   target: LanguageDef,
-  opts: { apiKey: string; model: string; endpoint?: string; quickMode?: boolean },
+  opts: VisionCallOpts,
 ): Promise<TranslationResult> {
   const prompt = buildPrompt(source, target)
-  const kind = modelKind(opts.model)
-
-  if (kind === "anthropic") {
-    return callAnthropic(imageBase64, prompt, opts)
-  }
-  return callOpenAI(imageBase64, prompt, opts)
+  const content = await callVision(imageBase64, prompt, opts)
+  return parseTranslation(content)
 }
 
-async function callOpenAI(
+export async function parseMath(
+  imageBase64: string,
+  opts: VisionCallOpts,
+): Promise<MathResult> {
+  const prompt = buildMathPrompt()
+  const content = await callVision(imageBase64, prompt, {
+    ...opts,
+    maxTokens: opts.maxTokens ?? 4096,
+  })
+  return parseMathResult(content)
+}
+
+async function callVision(
   imageBase64: string,
   prompt: string,
-  opts: { apiKey: string; model: string; endpoint?: string; quickMode?: boolean },
-): Promise<TranslationResult> {
+  opts: VisionCallOpts,
+): Promise<string> {
+  const kind = modelKind(opts.model)
+  if (kind === "anthropic") return callAnthropicRaw(imageBase64, prompt, opts)
+  return callOpenAIRaw(imageBase64, prompt, opts)
+}
+
+async function callOpenAIRaw(
+  imageBase64: string,
+  prompt: string,
+  opts: VisionCallOpts,
+): Promise<string> {
   const endpoint =
     opts.endpoint && opts.endpoint.trim() && !opts.endpoint.includes("/v1/messages")
       ? opts.endpoint
@@ -106,6 +144,7 @@ async function callOpenAI(
     ],
     temperature: 0,
   }
+  if (opts.maxTokens) body.max_tokens = opts.maxTokens
   if (opts.quickMode) body.reasoning_effort = "none"
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 60_000)
@@ -131,22 +170,21 @@ async function callOpenAI(
     const msg = json.error?.message ?? `HTTP ${res.status}`
     throw new Error(`API error: ${msg}`)
   }
-  const content = json.choices?.[0]?.message?.content ?? ""
-  return parseTranslation(content)
+  return String(json.choices?.[0]?.message?.content ?? "")
 }
 
-async function callAnthropic(
+async function callAnthropicRaw(
   imageBase64: string,
   prompt: string,
-  opts: { apiKey: string; model: string; endpoint?: string; quickMode?: boolean },
-): Promise<TranslationResult> {
+  opts: VisionCallOpts,
+): Promise<string> {
   const endpoint =
     opts.endpoint && opts.endpoint.trim() && opts.endpoint.includes("/v1/messages")
       ? opts.endpoint
       : ANTHROPIC_ENDPOINT
   const body: Record<string, any> = {
     model: opts.model,
-    max_tokens: 1024,
+    max_tokens: opts.maxTokens ?? 1024,
     messages: [
       {
         role: "user",
@@ -190,30 +228,66 @@ async function callAnthropic(
     const msg = json.error?.message ?? `HTTP ${res.status}`
     throw new Error(`API error: ${msg}`)
   }
-  const content =
+  return (
     (json.content as Array<{ type: string; text?: string }>)
       ?.filter((b) => b.type === "text")
       .map((b) => b.text ?? "")
       .join("")
       .trim() ?? ""
-  return parseTranslation(content)
+  )
+}
+
+/**
+ * Robustly extract a JSON object from model output.
+ * Handles: (1) bare JSON, (2) JSON wrapped in ```json ... ``` fences,
+ * (3) reasoning prose followed by a fenced JSON block,
+ * (4) JSON embedded in trailing prose (last {...} block fallback).
+ */
+function extractJsonObject(raw: string): any {
+  // 1) Direct parse — works for clean bare JSON.
+  try {
+    return JSON.parse(raw)
+  } catch {
+    /* fall through */
+  }
+  // 2) Pull the contents of every ```json ... ``` or ``` ... ``` fenced
+  //    block (try the LAST one first — model usually ends with the answer).
+  const fences = Array.from(
+    raw.matchAll(/```(?:json|JSON)?[^\n]*\n([\s\S]*?)```/g),
+  )
+  for (let i = fences.length - 1; i >= 0; i--) {
+    try {
+      return JSON.parse(fences[i][1].trim())
+    } catch {
+      /* try next fence */
+    }
+  }
+  // 3) Find a balanced final ```JSON``` block as a fallback when there's prose
+  //    before it containing braces (e.g. LaTeX reasoning like \frac{a}{b}).
+  const tailFence = raw.match(/```(?:json|JSON)?[^\n]*\n([\s\S]*?)```\s*$/)
+  if (tailFence) {
+    try {
+      return JSON.parse(tailFence[1].trim())
+    } catch {
+      /* fall through */
+    }
+  }
+  // 4) Greedy {...} match on the cleaned text (no fences).
+  const cleaned = raw.replace(/```[a-zA-Z]*\n?/g, "").replace(/```/g, "")
+  const match = cleaned.match(/\{[\s\S]*\}/)
+  if (match) {
+    try {
+      return JSON.parse(match[0])
+    } catch {
+      /* fall through */
+    }
+  }
+  return null
 }
 
 function parseTranslation(content: string): TranslationResult {
   const raw = content.trim()
-  let parsed: any = null
-  try {
-    parsed = JSON.parse(raw)
-  } catch {
-    const match = raw.match(/\{[\s\S]*\}/)
-    if (match) {
-      try {
-        parsed = JSON.parse(match[0])
-      } catch {
-        /* fall through */
-      }
-    }
-  }
+  const parsed = extractJsonObject(raw)
   if (parsed && typeof parsed === "object") {
     return {
       detected_language: String(parsed.detected_language ?? "unknown"),
@@ -226,6 +300,23 @@ function parseTranslation(content: string): TranslationResult {
     detected_language: "unknown",
     recognized: raw,
     translated: "",
+    raw,
+  }
+}
+
+function parseMathResult(content: string): MathResult {
+  const raw = content.trim()
+  const parsed = extractJsonObject(raw)
+  if (parsed && typeof parsed === "object") {
+    return {
+      markdown: String(parsed.markdown ?? ""),
+      latex: String(parsed.latex ?? ""),
+      raw,
+    }
+  }
+  return {
+    markdown: raw,
+    latex: "",
     raw,
   }
 }

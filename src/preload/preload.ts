@@ -16,6 +16,22 @@ const api = {
     close: () => ipcRenderer.send("overlay:close"),
     copy: (text: string) => ipcRenderer.send("overlay:copy", text),
   },
+  math: {
+    close: () => ipcRenderer.send("math:close"),
+    copy: (text: string) => ipcRenderer.send("math:copy", text),
+    save: (content: string, format: string) =>
+      ipcRenderer.invoke("math:save", content, format),
+    setFormat: (format: string) => ipcRenderer.send("math:set-format", format),
+    onResult: (
+      cb: (r: {
+        markdown: string
+        latex: string
+        loading?: boolean
+        error?: string
+        defaultFormat?: string
+      }) => void,
+    ) => ipcRenderer.on("math:result", (_e, r) => cb(r)),
+  },
   settings: {
     get: () => ipcRenderer.invoke("settings:get"),
     set: (patch: any) => ipcRenderer.invoke("settings:set", patch),

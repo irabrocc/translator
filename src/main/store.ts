@@ -8,8 +8,15 @@ import {
 export interface ShortcutConfig {
   screenshot: string
   quickScreenshot: string
+  math: string
   cycleSource: string
   cycleTarget: string
+}
+
+export type MathOutputFormat = "md" | "tex"
+
+export interface MathSettings {
+  outputFormat: MathOutputFormat
 }
 
 export interface Settings {
@@ -21,6 +28,7 @@ export interface Settings {
   currentSourceId: string
   currentTargetId: string
   shortcuts: ShortcutConfig
+  math: MathSettings
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -34,8 +42,12 @@ export const DEFAULT_SETTINGS: Settings = {
   shortcuts: {
     screenshot: "Alt+S",
     quickScreenshot: "Alt+Q",
+    math: "Alt+M",
     cycleSource: "Alt+L",
     cycleTarget: "Alt+T",
+  },
+  math: {
+    outputFormat: "md",
   },
 }
 
@@ -50,6 +62,7 @@ export function getSettings(): Settings {
     ...DEFAULT_SETTINGS,
     ...data,
     shortcuts: { ...DEFAULT_SETTINGS.shortcuts, ...(data?.shortcuts ?? {}) },
+    math: { ...DEFAULT_SETTINGS.math, ...(data?.math ?? {}) },
     sourceLanguages: data?.sourceLanguages?.length
       ? data.sourceLanguages
       : DEFAULT_SETTINGS.sourceLanguages,

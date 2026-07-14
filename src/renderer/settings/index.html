@@ -31,17 +31,24 @@
 
     <section>
       <label>快捷键</label>
-      <div class="row"><span>截图</span><input type="text" id="scScreenshot" /></div>
+      <div class="row"><span>截图翻译</span><input type="text" id="scScreenshot" /></div>
+      <div class="row"><span>数学解析</span><input type="text" id="scMath" /></div>
       <div class="row"><span>切换快速/思考模式</span><input type="text" id="scQuick" /></div>
       <div class="row"><span>切换源语言</span><input type="text" id="scSource" /></div>
       <div class="row"><span>切换目标语言</span><input type="text" id="scTarget" /></div>
-      <small>格式如 Alt+S / Ctrl+Shift+T。Alt+Q 切换快速（无思考）/思考模式。修改后关闭设置窗口生效。</small>
+      <small>格式如 Alt+S / Ctrl+Shift+T。Alt+M 数学解析（截图→Markdown/LaTeX）。Alt+Q 切换快速（无思考）/思考模式。修改后关闭设置窗口生效。</small>
     </section>
 
     <section>
       <label>默认语言</label>
       <div class="row"><span>当前源语言</span><select id="curSource"></select></div>
       <div class="row"><span>当前目标语言</span><select id="curTarget"></select></div>
+    </section>
+
+    <section>
+      <label>数学解析</label>
+      <div class="row"><span>默认输出格式</span><select id="mathFormat"><option value="md">Markdown</option><option value="tex">LaTeX</option></select></div>
+      <small>截图解析数学文本后，结果窗口默认显示的格式。可在结果窗口中随时切换。</small>
     </section>
 
     <div class="actions">

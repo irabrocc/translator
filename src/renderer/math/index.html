@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="zh">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'"
+    />
+    <link rel="stylesheet" href="math.css" />
+  </head>
+  <body>
+    <div id="header">
+      <span id="title">数学解析结果</span>
+      <span id="close" title="关闭 (Esc)">×</span>
+    </div>
+    <div id="loading">解析中…</div>
+    <div id="content" hidden>
+      <div id="toolbar">
+        <div id="tabs">
+          <button class="tab active" data-format="md">Markdown</button>
+          <button class="tab" data-format="tex">LaTeX</button>
+        </div>
+        <div id="actions">
+          <button class="act" id="copyBtn">复制</button>
+          <button class="act" id="saveBtn">保存</button>
+        </div>
+      </div>
+      <div id="error" hidden></div>
+      <pre id="code"></pre>
+    </div>
+    <script type="module" src="math.js"></script>
+  </body>
+</html>

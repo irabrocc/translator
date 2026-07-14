@@ -7,13 +7,20 @@ import {
 } from "electron"
 import path from "node:path"
 
+export type CaptureMode = "translate" | "math"
+
 let selectorWindow: BrowserWindow | null = null
+let currentMode: CaptureMode = "translate"
 
 export function initScreenshotModule(
-  onCaptured: (base64: string, rect: { x: number; y: number; width: number; height: number }) => void,
+  onCaptured: (
+    base64: string,
+    rect: { x: number; y: number; width: number; height: number },
+    mode: CaptureMode,
+  ) => void,
 ) {
   ipcMain.on("screenshot:submit", async (_e, rect) => {
-    console.log("[selector] submit rect:", JSON.stringify(rect))
+    console.log("[selector] submit rect:", JSON.stringify(rect), "mode:", currentMode)
     try {
       // Hide the selector overlay BEFORE capturing so it is not included
       // in the screenshot (otherwise the capture is a black/overlay image).
@@ -22,7 +29,7 @@ export function initScreenshotModule(
       await new Promise((r) => setTimeout(r, 200))
       const base64 = await captureRegion(rect)
       console.log("[selector] captured base64 len:", base64.length)
-      onCaptured(base64, rect)
+      onCaptured(base64, rect, currentMode)
     } catch (err) {
       console.error("[selector] capture failed:", err)
     }
@@ -34,8 +41,9 @@ export function initScreenshotModule(
   })
 }
 
-export async function startSelection(): Promise<void> {
-  console.log("[selector] startSelection called")
+export async function startSelection(mode?: CaptureMode): Promise<void> {
+  if (mode) currentMode = mode
+  console.log("[selector] startSelection called, mode:", currentMode)
   if (selectorWindow && !selectorWindow.isDestroyed()) {
     console.log("[selector] reusing existing window")
     selectorWindow.show()
