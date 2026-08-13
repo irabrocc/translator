@@ -1,6 +1,6 @@
 export {}
 
-const bridge = (window as any).bridge
+const bridge = window.bridge
 
 const modelEl = document.getElementById("model") as HTMLSpanElement
 const modeEl = document.getElementById("mode") as HTMLSpanElement

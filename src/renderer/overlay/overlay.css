@@ -5,6 +5,18 @@ html, body {
   font: 13px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
   user-select: none;
 }
+body::after {
+  content: "";
+  position: fixed;
+  right: 3px;
+  bottom: 3px;
+  width: 9px;
+  height: 9px;
+  border-right: 2px solid #585b70;
+  border-bottom: 2px solid #585b70;
+  pointer-events: none;
+  opacity: .7;
+}
 #header {
   height: 28px; display: flex; align-items: center; justify-content: space-between;
   padding: 0 10px; background: #181825; -webkit-app-region: drag; cursor: default;
@@ -18,10 +30,10 @@ html, body {
 }
 #content { position: absolute; inset: 28px 0 0 0; padding: 10px; display: flex; flex-direction: column; gap: 8px; }
 .block { display: flex; flex-direction: column; flex: 1; min-height: 0; }
-.label { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
-.label span { font-size: 11px; color: #89b4fa; text-transform: uppercase; letter-spacing: .5px; }
+.label { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; min-width: 0; }
+.label span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: #89b4fa; text-transform: uppercase; letter-spacing: .5px; }
 .copy {
-  border: none; background: #313244; color: #cdd6f4; font-size: 11px; padding: 2px 8px; border-radius: 4px; cursor: pointer;
+  flex-shrink: 0; border: none; background: #313244; color: #cdd6f4; font-size: 11px; padding: 2px 8px; border-radius: 4px; cursor: pointer;
 }
 .copy:hover { background: #45475a; }
 .text {

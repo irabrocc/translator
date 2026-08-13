@@ -1,6 +1,6 @@
 export {}
 
-const bridge = (window as any).bridge
+const bridge = window.bridge
 
 const loading = document.getElementById("loading") as HTMLDivElement
 const content = document.getElementById("content") as HTMLDivElement
@@ -30,7 +30,7 @@ function setFormat(fmt: "md" | "tex") {
   render()
 }
 
-bridge.math.onResult((r: any) => {
+bridge.math.onResult((r) => {
   if (r.loading) {
     loading.hidden = false
     content.hidden = true
@@ -85,8 +85,8 @@ saveBtn.addEventListener("click", async () => {
     const orig = saveBtn.textContent
     saveBtn.textContent = "已保存"
     setTimeout(() => (saveBtn.textContent = orig), 900)
-  } catch (e: any) {
+  } catch (e: unknown) {
     errorEl.hidden = false
-    errorEl.textContent = e?.message ?? String(e)
+    errorEl.textContent = e instanceof Error ? e.message : String(e)
   }
 })
