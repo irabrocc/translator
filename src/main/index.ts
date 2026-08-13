@@ -15,14 +15,12 @@ import {
 import path from "node:path"
 import fs from "node:fs"
 import {
+  AVAILABLE_MODELS,
   getSettings,
   setSettings,
   resetSettings,
 } from "./store"
 import {
-  BUILTIN_SOURCE_LANGUAGES,
-  BUILTIN_TARGET_LANGUAGES,
-  LanguageDef,
   cycleLanguage,
   findLanguage,
 } from "./languages"
@@ -32,38 +30,123 @@ import {
   startSelection,
   closeSelection,
   CaptureMode,
+  CaptureRect,
 } from "./screenshot"
+
+type CaptureBounds = Pick<CaptureRect, "x" | "y" | "width" | "height">
+
+interface OverlayResultData {
+  detected: string
+  recognized: string
+  translated: string
+  sourceLabel: string
+  targetLabel: string
+  loading?: boolean
+  error?: string
+}
+
+interface MathResultData {
+  markdown: string
+  latex: string
+  loading?: boolean
+  error?: string
+  defaultFormat?: "md" | "tex"
+}
+
+const IS_LINUX = process.platform === "linux"
+const USE_FLOATING_STATUS_BADGE = process.platform === "win32"
+
+app.setName("Screenshot Translator")
+if (process.platform === "win32") {
+  app.setAppUserModelId("ai.opencode.screenshot-translator")
+}
+if (IS_LINUX) {
+  // Electron 36+ defaults to GTK 4 on GNOME, while Ubuntu's Ayatana
+  // AppIndicator integration currently uses GTK 3. Keep the native tray on
+  // the GNOME top bar instead of falling back to an invisible GtkStatusIcon.
+  app.commandLine.appendSwitch("gtk-version", "3")
+}
+if (IS_LINUX && process.env.XDG_SESSION_TYPE?.toLowerCase() === "x11") {
+  // Electron normally auto-detects X11; pinning Ozone here avoids selecting a
+  // Wayland backend when the app is launched from a desktop entry on X11.
+  app.commandLine.appendSwitch("ozone-platform", "x11")
+}
+
+if (!app.requestSingleInstanceLock()) {
+  app.quit()
+} else {
+  app.on("second-instance", () => {
+    if (app.isReady()) openSettings()
+  })
+}
 
 let tray: Tray | null = null
 let overlayWindow: BrowserWindow | null = null
 let mathWindow: BrowserWindow | null = null
 let settingsWindow: BrowserWindow | null = null
 let statusWindow: BrowserWindow | null = null
-let pendingOverlayData: any = null
-let pendingMathData: any = null
+let pendingOverlayData: OverlayResultData | null = null
+let pendingMathData: MathResultData | null = null
+let statusKeepAliveTimer: ReturnType<typeof setInterval> | null = null
+let translationRequestId = 0
+let mathRequestId = 0
+let translationAbortController: AbortController | null = null
+let mathAbortController: AbortController | null = null
 
-// Persistent toggle: when true, captures run without reasoning (quick mode)
-let quickMode = false
+// Captures start without reasoning; users can toggle thinking mode at runtime.
+let quickMode = true
 
 function getAsset(name: string): string {
   return path.join(__dirname, "..", "..", "assets", name)
 }
 
 function makeTrayIcon(): Electron.NativeImage {
-  try {
-    return nativeImage.createFromPath(getAsset("tray-icon.png"))
-  } catch {
-    return nativeImage.createEmpty()
-  }
+  const preferred = IS_LINUX ? "tray-icon-linux.png" : "tray-icon.png"
+  const image = nativeImage.createFromPath(getAsset(preferred))
+  if (!image.isEmpty()) return image
+  return nativeImage.createFromPath(getAsset("tray-icon.png"))
 }
 
-function currentSource(): LanguageDef {
-  const s = getSettings()
-  return findLanguage(s.sourceLanguages, s.currentSourceId)
+function loadRenderer(win: BrowserWindow, page: string): void {
+  const file = path.join(__dirname, "..", "renderer", page, "index.html")
+  void win.loadFile(file).catch((error: unknown) => {
+    console.error(`[${page}] failed to load renderer:`, errorMessage(error))
+  })
 }
-function currentTarget(): LanguageDef {
-  const s = getSettings()
-  return findLanguage(s.targetLanguages, s.currentTargetId)
+
+function showNotification(title: string, body: string, silent = false): void {
+  if (!Notification.isSupported()) return
+  new Notification({ title, body, silent }).show()
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+function cancelTranslationRequest(): void {
+  translationRequestId++
+  translationAbortController?.abort()
+  translationAbortController = null
+}
+
+function cancelMathRequest(): void {
+  mathRequestId++
+  mathAbortController?.abort()
+  mathAbortController = null
+}
+
+function isWindowSender(
+  sender: Electron.WebContents,
+  win: BrowserWindow | null,
+): boolean {
+  return Boolean(win && !win.isDestroyed() && sender === win.webContents)
+}
+
+function assertWindowSender(
+  sender: Electron.WebContents,
+  win: BrowserWindow | null,
+): void {
+  if (!isWindowSender(sender, win)) throw new Error("Unauthorized IPC sender")
 }
 
 function updateTrayMenu() {
@@ -87,7 +170,10 @@ function updateTrayMenu() {
       label: `模式: ${quickMode ? "快速 (F)" : "思考 (T)"} — 点击切换`,
       click: () => toggleQuickMode(),
     },
-    { label: `模型: ${getSettings().model}`, enabled: false },
+    {
+      label: `模型: ${s.model} — 点击切换`,
+      click: () => cycleModel(),
+    },
     {
       label: "切换源语言",
       click: () => cycleSource(),
@@ -107,7 +193,9 @@ function updateTrayMenu() {
     },
   ])
   tray.setContextMenu(menu)
-  tray.setToolTip(`源: ${src.name} → 目标: ${tgt.name}`)
+  tray.setToolTip(
+    `截图翻译 · ${quickMode ? "快速" : "思考"} · ${src.name} → ${tgt.name}`,
+  )
 }
 
 function registerShortcuts() {
@@ -115,13 +203,18 @@ function registerShortcuts() {
   globalShortcut.unregisterAll()
   const tryReg = (accel: string, fn: () => void): boolean => {
     if (!accel) return false
-    const ok = globalShortcut.register(accel, fn)
+    let ok = false
+    try {
+      ok = globalShortcut.register(accel, fn)
+    } catch (error: unknown) {
+      console.error(`[shortcut] register ${accel} threw:`, errorMessage(error))
+    }
     console.log(`[shortcut] register ${accel}: ${ok ? "OK" : "FAILED"}`)
     if (!ok) {
-      new Notification({
-        title: "快捷键注册失败",
-        body: `无法注册: ${accel}，可能已被占用。请在设置中修改。`,
-      }).show()
+      showNotification(
+        "快捷键注册失败",
+        `无法注册: ${accel}，可能已被占用或格式无效。请在设置中修改。`,
+      )
     }
     return ok
   }
@@ -132,6 +225,7 @@ function registerShortcuts() {
   if (s.shortcuts.math && s.shortcuts.math !== s.shortcuts.screenshot) {
     tryReg(s.shortcuts.math, triggerMathCapture)
   }
+  tryReg(s.shortcuts.cycleModel, cycleModel)
   tryReg(s.shortcuts.cycleSource, cycleSource)
   tryReg(s.shortcuts.cycleTarget, cycleTarget)
 }
@@ -160,23 +254,26 @@ function ensureStatusWindow(): BrowserWindow {
       preload: path.join(__dirname, "..", "preload", "preload.js"),
       contextIsolation: true,
       nodeIntegration: false,
+      sandbox: true,
     },
   })
   statusWindow.setAlwaysOnTop(true, "screen-saver")
   statusWindow.setIgnoreMouseEvents(true, { forward: false })
-  statusWindow.loadURL(
-    `file://${path.join(__dirname, "..", "renderer", "status", "index.html")}`,
-  )
+  loadRenderer(statusWindow, "status")
   statusWindow.webContents.on("did-finish-load", () => {
     pushStatusUpdate()
   })
   statusWindow.on("closed", () => {
     statusWindow = null
+    if (statusKeepAliveTimer) {
+      clearInterval(statusKeepAliveTimer)
+      statusKeepAliveTimer = null
+    }
   })
 
   // Periodically re-assert z-order so the badge stays visible
   // even after the Windows taskbar is clicked/focused.
-  setInterval(() => {
+  statusKeepAliveTimer = setInterval(() => {
     if (!statusWindow || statusWindow.isDestroyed()) return
     statusWindow.setAlwaysOnTop(true, "screen-saver")
     statusWindow.moveTop()
@@ -195,8 +292,11 @@ function pushStatusUpdate() {
 }
 
 function updateStatusBadge() {
-  ensureStatusWindow()
-  const win = statusWindow!
+  // Linux uses the native StatusNotifierItem in the GNOME top bar. Keep the
+  // legacy floating badge only on Windows so the app never occupies the
+  // Ubuntu dock/taskbar merely to show persistent status.
+  if (!USE_FLOATING_STATUS_BADGE) return
+  const win = ensureStatusWindow()
   if (!win.isVisible()) win.show()
   pushStatusUpdate()
 }
@@ -205,15 +305,12 @@ function triggerScreenshot() {
   console.log("[screenshot] Alt+S triggered, quickMode:", quickMode)
   if (!getSettings().goApiKey) {
     console.log("[screenshot] no API key, opening settings")
-    new Notification({
-      title: "未配置 API Key",
-      body: "请先在设置中填入 OpenCode Go API Key。",
-    }).show()
+    showNotification("未配置 API Key", "请先在设置中填入 OpenCode Go API Key。")
     openSettings()
     return
   }
-  startSelection("translate").catch((e) => {
-    console.error("[screenshot] start selection failed", e)
+  startSelection("translate").catch((error: unknown) => {
+    console.error("[screenshot] start selection failed", errorMessage(error))
   })
 }
 
@@ -221,15 +318,12 @@ function triggerMathCapture() {
   console.log("[math] Alt+M triggered, quickMode:", quickMode)
   if (!getSettings().goApiKey) {
     console.log("[math] no API key, opening settings")
-    new Notification({
-      title: "未配置 API Key",
-      body: "请先在设置中填入 OpenCode Go API Key。",
-    }).show()
+    showNotification("未配置 API Key", "请先在设置中填入 OpenCode Go API Key。")
     openSettings()
     return
   }
-  startSelection("math").catch((e) => {
-    console.error("[math] start selection failed", e)
+  startSelection("math").catch((error: unknown) => {
+    console.error("[math] start selection failed", errorMessage(error))
   })
 }
 
@@ -238,13 +332,11 @@ function toggleQuickMode() {
   console.log("[mode] quickMode toggled to:", quickMode)
   updateTrayMenu()
   updateStatusBadge()
-  if (Notification.isSupported()) {
-    new Notification({
-      title: quickMode ? "快速模式" : "思考模式",
-      body: quickMode ? "已切换至快速模式（无思考）。" : "已切换至思考模式。",
-      silent: true,
-    }).show()
-  }
+  showNotification(
+    quickMode ? "快速模式" : "思考模式",
+    quickMode ? "已切换至快速模式（无思考）。" : "已切换至思考模式。",
+    true,
+  )
 }
 
 function cycleSource() {
@@ -254,6 +346,19 @@ function cycleSource() {
   setSettings({ currentSourceId: next.id })
   updateTrayMenu()
   notifyLangChange("源语言", next.name)
+}
+
+function cycleModel() {
+  const current = getSettings().model
+  const currentIndex = AVAILABLE_MODELS.indexOf(
+    current as (typeof AVAILABLE_MODELS)[number],
+  )
+  const next = AVAILABLE_MODELS[(currentIndex + 1) % AVAILABLE_MODELS.length]
+  setSettings({ model: next })
+  console.log(`[model] switched from ${current} to ${next}`)
+  updateTrayMenu()
+  updateStatusBadge()
+  showNotification("模型已切换", next, true)
 }
 
 function cycleTarget() {
@@ -266,9 +371,35 @@ function cycleTarget() {
 }
 
 function notifyLangChange(kind: string, name: string) {
-  if (Notification.isSupported()) {
-    new Notification({ title: kind, body: name, silent: true }).show()
+  showNotification(kind, name, true)
+}
+
+function positionResultWindow(
+  win: BrowserWindow,
+  near: CaptureBounds,
+): void {
+  const display = screen.getDisplayMatching(near)
+  const workArea = display.workArea
+  const margin = 8
+  const [currentWidth, currentHeight] = win.getSize()
+  const width = Math.min(currentWidth, Math.max(win.getMinimumSize()[0], workArea.width - margin * 2))
+  const height = Math.min(currentHeight, Math.max(win.getMinimumSize()[1], workArea.height - margin * 2))
+
+  let x = near.x + near.width + margin
+  let y = near.y
+  if (x + width > workArea.x + workArea.width - margin) {
+    x = near.x - width - margin
   }
+  x = Math.max(
+    workArea.x + margin,
+    Math.min(x, workArea.x + workArea.width - width - margin),
+  )
+  y = Math.max(
+    workArea.y + margin,
+    Math.min(y, workArea.y + workArea.height - height - margin),
+  )
+
+  win.setBounds({ x, y, width, height })
 }
 
 function ensureOverlay(): BrowserWindow {
@@ -278,8 +409,10 @@ function ensureOverlay(): BrowserWindow {
     height: 220,
     frame: false,
     transparent: false,
-    resizable: false,
-    skipTaskbar: false,
+    resizable: true,
+    minWidth: 280,
+    minHeight: 180,
+    skipTaskbar: IS_LINUX,
     show: false,
     title: "翻译结果",
     backgroundColor: "#1e1e2e",
@@ -287,11 +420,10 @@ function ensureOverlay(): BrowserWindow {
       preload: path.join(__dirname, "..", "preload", "preload.js"),
       contextIsolation: true,
       nodeIntegration: false,
+      sandbox: true,
     },
   })
-  overlayWindow.loadURL(
-    `file://${path.join(__dirname, "..", "renderer", "overlay", "index.html")}`,
-  )
+  loadRenderer(overlayWindow, "overlay")
   overlayWindow.webContents.once("did-finish-load", () => {
     console.log("[overlay] renderer did-finish-load")
     overlayWindow?.webContents.on("console-message", (_e, _level, msg) => {
@@ -309,7 +441,7 @@ function ensureOverlay(): BrowserWindow {
   return overlayWindow
 }
 
-function sendToOverlay(data: any) {
+function sendToOverlay(data: OverlayResultData): void {
   const win = ensureOverlay()
   if (win.webContents.isLoading()) {
     pendingOverlayData = data
@@ -318,23 +450,10 @@ function sendToOverlay(data: any) {
   }
 }
 
-function showOverlayLoading(near: { x: number; y: number; width: number; height: number }) {
+function showOverlayLoading(near: CaptureBounds): void {
   console.log("[overlay] showOverlayLoading near:", JSON.stringify(near))
   const win = ensureOverlay()
-  const display = screen.getDisplayMatching({
-    x: near.x,
-    y: near.y,
-    width: near.width,
-    height: near.height,
-  })
-  const db = display.bounds
-  let x = near.x + near.width + 8
-  let y = near.y
-  if (x + 360 > db.x + db.width) x = near.x - 368
-  if (x < db.x) x = db.x + 8
-  if (y + 220 > db.y + db.height) y = db.y + db.height - 228
-  if (y < db.y) y = db.y + 8
-  win.setBounds({ x, y, width: 360, height: 220 })
+  positionResultWindow(win, near)
   win.show()
   win.focus()
   win.moveTop()
@@ -349,14 +468,7 @@ function showOverlayLoading(near: { x: number; y: number; width: number; height:
   })
 }
 
-function showOverlayResult(r: {
-  detected: string
-  recognized: string
-  translated: string
-  sourceLabel: string
-  targetLabel: string
-  error?: string
-}) {
+function showOverlayResult(r: OverlayResultData): void {
   console.log("[overlay] showOverlayResult, recognized len:", r.recognized.length, "translated len:", r.translated.length, "error:", r.error ?? "none")
   const win = ensureOverlay()
   if (!win.isVisible()) {
@@ -377,7 +489,7 @@ function ensureMathWindow(): BrowserWindow {
     resizable: true,
     minWidth: 360,
     minHeight: 240,
-    skipTaskbar: false,
+    skipTaskbar: IS_LINUX,
     show: false,
     title: "数学解析结果",
     backgroundColor: "#1e1e2e",
@@ -385,11 +497,10 @@ function ensureMathWindow(): BrowserWindow {
       preload: path.join(__dirname, "..", "preload", "preload.js"),
       contextIsolation: true,
       nodeIntegration: false,
+      sandbox: true,
     },
   })
-  mathWindow.loadURL(
-    `file://${path.join(__dirname, "..", "renderer", "math", "index.html")}`,
-  )
+  loadRenderer(mathWindow, "math")
   mathWindow.webContents.once("did-finish-load", () => {
     console.log("[math] renderer did-finish-load")
     mathWindow?.webContents.on("console-message", (_e, _level, msg) => {
@@ -407,7 +518,7 @@ function ensureMathWindow(): BrowserWindow {
   return mathWindow
 }
 
-function sendToMath(data: any) {
+function sendToMath(data: MathResultData): void {
   const win = ensureMathWindow()
   if (win.webContents.isLoading()) {
     pendingMathData = data
@@ -416,35 +527,22 @@ function sendToMath(data: any) {
   }
 }
 
-function showMathLoading(near: { x: number; y: number; width: number; height: number }) {
+function showMathLoading(near: CaptureBounds): void {
   console.log("[math] showMathLoading near:", JSON.stringify(near))
   const win = ensureMathWindow()
-  const [w, h] = win.getSize()
-  const display = screen.getDisplayMatching({
-    x: near.x,
-    y: near.y,
-    width: near.width,
-    height: near.height,
-  })
-  const db = display.bounds
-  let x = near.x + near.width + 8
-  let y = near.y
-  if (x + w > db.x + db.width) x = near.x - w - 8
-  if (x < db.x) x = db.x + 8
-  if (y + h > db.y + db.height) y = db.y + db.height - h - 8
-  if (y < db.y) y = db.y + 8
-  win.setBounds({ x, y, width: w, height: h })
+  positionResultWindow(win, near)
   win.show()
   win.focus()
   win.moveTop()
-  sendToMath({ markdown: "", latex: "", loading: true, defaultFormat: getSettings().math?.outputFormat ?? "md" })
+  sendToMath({
+    markdown: "",
+    latex: "",
+    loading: true,
+    defaultFormat: getSettings().math.outputFormat,
+  })
 }
 
-function showMathResult(r: {
-  markdown: string
-  latex: string
-  error?: string
-}) {
+function showMathResult(r: MathResultData): void {
   console.log("[math] showMathResult, md len:", r.markdown.length, "tex len:", r.latex.length, "error:", r.error ?? "none")
   const win = ensureMathWindow()
   if (!win.isVisible()) {
@@ -452,14 +550,22 @@ function showMathResult(r: {
     win.focus()
     win.moveTop()
   }
-  sendToMath({ ...r, loading: false, defaultFormat: getSettings().math?.outputFormat ?? "md" })
+  sendToMath({
+    ...r,
+    loading: false,
+    defaultFormat: getSettings().math.outputFormat,
+  })
 }
 
 async function onMathCaptured(
   base64: string,
-  rect: { x: number; y: number; width: number; height: number },
+  rect: CaptureBounds,
 ) {
   console.log("[onMathCaptured] rect:", JSON.stringify(rect), "base64 len:", base64.length)
+  cancelMathRequest()
+  const requestId = mathRequestId
+  const controller = new AbortController()
+  mathAbortController = controller
   const s = getSettings()
   showMathLoading(rect)
   try {
@@ -470,24 +576,34 @@ async function onMathCaptured(
       endpoint: s.endpoint,
       model: s.model,
       quickMode: quick,
+      signal: controller.signal,
     })
+    if (requestId !== mathRequestId) return
     console.log("[onMathCaptured] API result: md len:", res.markdown.length, "tex len:", res.latex.length)
     showMathResult({ markdown: res.markdown, latex: res.latex })
-  } catch (e: any) {
-    console.error("[onMathCaptured] API error:", e?.message)
+  } catch (error: unknown) {
+    if (requestId !== mathRequestId) return
+    const message = errorMessage(error)
+    console.error("[onMathCaptured] API error:", message)
     showMathResult({
       markdown: "",
       latex: "",
-      error: e?.message ?? String(e),
+      error: message,
     })
+  } finally {
+    if (mathAbortController === controller) mathAbortController = null
   }
 }
 
 async function onCaptured(
   base64: string,
-  rect: { x: number; y: number; width: number; height: number },
+  rect: CaptureBounds,
 ) {
   console.log("[onCaptured] rect:", JSON.stringify(rect), "base64 len:", base64.length)
+  cancelTranslationRequest()
+  const requestId = translationRequestId
+  const controller = new AbortController()
+  translationAbortController = controller
   const s = getSettings()
   showOverlayLoading(rect)
   try {
@@ -500,7 +616,9 @@ async function onCaptured(
       endpoint: s.endpoint,
       model: s.model,
       quickMode: quick,
+      signal: controller.signal,
     })
+    if (requestId !== translationRequestId) return
     console.log("[onCaptured] API result:", JSON.stringify(res).slice(0, 200))
     showOverlayResult({
       detected: res.detected_language,
@@ -509,16 +627,22 @@ async function onCaptured(
       sourceLabel: src.id === "auto" ? res.detected_language || "识别结果" : src.name,
       targetLabel: tgt.name,
     })
-  } catch (e: any) {
-    console.error("[onCaptured] API error:", e?.message)
+  } catch (error: unknown) {
+    if (requestId !== translationRequestId) return
+    const message = errorMessage(error)
+    console.error("[onCaptured] API error:", message)
     showOverlayResult({
       detected: "",
       recognized: "",
       translated: "",
       sourceLabel: "",
       targetLabel: "",
-      error: e?.message ?? String(e),
+      error: message,
     })
+  } finally {
+    if (translationAbortController === controller) {
+      translationAbortController = null
+    }
   }
 }
 
@@ -535,15 +659,15 @@ function openSettings() {
     resizable: false,
     minimizable: false,
     maximizable: false,
+    skipTaskbar: IS_LINUX,
     webPreferences: {
       preload: path.join(__dirname, "..", "preload", "preload.js"),
       contextIsolation: true,
       nodeIntegration: false,
+      sandbox: true,
     },
   })
-  settingsWindow.loadURL(
-    `file://${path.join(__dirname, "..", "renderer", "settings", "index.html")}`,
-  )
+  loadRenderer(settingsWindow, "settings")
   settingsWindow.on("closed", () => {
     settingsWindow = null
     // re-register shortcuts in case they changed
@@ -553,31 +677,70 @@ function openSettings() {
   })
 }
 
+function showCaptureError(
+  error: Error,
+  rect: CaptureRect | null,
+  mode: CaptureMode,
+): void {
+  if (!rect) {
+    showNotification("截图失败", error.message)
+    return
+  }
+  if (mode === "math") {
+    cancelMathRequest()
+    showMathLoading(rect)
+    showMathResult({ markdown: "", latex: "", error: error.message })
+  } else {
+    cancelTranslationRequest()
+    showOverlayLoading(rect)
+    showOverlayResult({
+      detected: "",
+      recognized: "",
+      translated: "",
+      sourceLabel: "",
+      targetLabel: "",
+      error: error.message,
+    })
+  }
+}
+
 function setupIpc() {
   initScreenshotModule((base64, rect, mode: CaptureMode) => {
     if (mode === "math") onMathCaptured(base64, rect)
     else onCaptured(base64, rect)
+  }, showCaptureError)
+
+  ipcMain.on("overlay:close", (event) => {
+    if (!isWindowSender(event.sender, overlayWindow)) return
+    cancelTranslationRequest()
+    overlayWindow?.hide()
+  })
+  ipcMain.on("overlay:copy", (event, text: unknown) => {
+    if (!isWindowSender(event.sender, overlayWindow)) return
+    if (typeof text === "string" && text) clipboard.writeText(text)
   })
 
-  ipcMain.on("overlay:close", () => overlayWindow?.hide())
-  ipcMain.on("overlay:copy", (_e, text: string) => {
-    if (text) clipboard.writeText(text)
+  ipcMain.on("math:close", (event) => {
+    if (!isWindowSender(event.sender, mathWindow)) return
+    cancelMathRequest()
+    mathWindow?.hide()
   })
-
-  ipcMain.on("math:close", () => mathWindow?.hide())
-  ipcMain.on("math:copy", (_e, text: string) => {
-    if (text) clipboard.writeText(text)
+  ipcMain.on("math:copy", (event, text: unknown) => {
+    if (!isWindowSender(event.sender, mathWindow)) return
+    if (typeof text === "string" && text) clipboard.writeText(text)
   })
-  ipcMain.on("math:set-format", (_e, format: string) => {
+  ipcMain.on("math:set-format", (event, format: unknown) => {
+    if (!isWindowSender(event.sender, mathWindow)) return
     const fmt = format === "tex" ? "tex" : "md"
     const cur = getSettings().math?.outputFormat
     if (cur === fmt) return
     setSettings({ math: { outputFormat: fmt } })
     console.log("[math] persisted default format:", fmt)
   })
-  ipcMain.handle("math:save", async (_e, content: string, format: string) => {
+  ipcMain.handle("math:save", async (event, content: unknown, format: unknown) => {
+    assertWindowSender(event.sender, mathWindow)
     const win = mathWindow
-    if (!win || win.isDestroyed() || !content) return
+    if (!win || win.isDestroyed() || typeof content !== "string" || !content) return
     const ext = format === "tex" ? "tex" : "md"
     const label = format === "tex" ? "LaTeX" : "Markdown"
     const result = await dialog.showSaveDialog(win, {
@@ -586,31 +749,49 @@ function setupIpc() {
     })
     if (!result.canceled && result.filePath) {
       try {
-        fs.writeFileSync(result.filePath, content, "utf-8")
+        await fs.promises.writeFile(result.filePath, content, "utf-8")
         return result.filePath
-      } catch (e: any) {
-        console.error("[math:save] write failed:", e?.message)
-        throw new Error(e?.message ?? String(e))
+      } catch (error: unknown) {
+        const message = errorMessage(error)
+        console.error("[math:save] write failed:", message)
+        throw new Error(message)
       }
     }
     return null
   })
 
-  ipcMain.handle("settings:get", () => getSettings())
-  ipcMain.handle("settings:set", (_e, patch) => {
+  ipcMain.handle("settings:get", (event) => {
+    assertWindowSender(event.sender, settingsWindow)
+    return getSettings()
+  })
+  ipcMain.handle("settings:set", (event, patch: unknown) => {
+    assertWindowSender(event.sender, settingsWindow)
     const result = setSettings(patch)
+    registerShortcuts()
+    updateTrayMenu()
     updateStatusBadge()
     return result
   })
-  ipcMain.handle("settings:reset", () => {
-    resetSettings()
+  ipcMain.handle("settings:reset", (event) => {
+    assertWindowSender(event.sender, settingsWindow)
+    const result = resetSettings()
+    registerShortcuts()
+    updateTrayMenu()
     updateStatusBadge()
-    return getSettings()
+    return result
   })
 
-  ipcMain.on("open-external", (_e, url: string) => shell.openExternal(url))
+  ipcMain.on("open-external", (event) => {
+    if (!isWindowSender(event.sender, settingsWindow)) return
+    void shell.openExternal("https://opencode.ai/auth").catch((error: unknown) => {
+      console.error("[external] failed to open URL:", errorMessage(error))
+    })
+  })
 
-  ipcMain.handle("status:get", () => statusBadgeInfo())
+  ipcMain.handle("status:get", (event) => {
+    assertWindowSender(event.sender, statusWindow)
+    return statusBadgeInfo()
+  })
 }
 
 app.whenReady().then(() => {
@@ -626,13 +807,19 @@ app.whenReady().then(() => {
   }
 
   app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) openSettings()
+    openSettings()
   })
 })
 
 app.on("will-quit", () => {
   globalShortcut.unregisterAll()
   closeSelection()
+  cancelTranslationRequest()
+  cancelMathRequest()
+  if (statusKeepAliveTimer) {
+    clearInterval(statusKeepAliveTimer)
+    statusKeepAliveTimer = null
+  }
 })
 
 // Keep running in tray even when all windows closed

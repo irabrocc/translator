@@ -10,12 +10,15 @@ let startScreenX = 0
 let startScreenY = 0
 let dragging = false
 
-// Fullscreen window origin in screen coords (so screenX - winX === clientX)
-const winX = window.screenX
-const winY = window.screenY
-
 function toClient(sx: number, sy: number) {
-  return { x: sx - winX, y: sy - winY }
+  return { x: sx - window.screenX, y: sy - window.screenY }
+}
+
+function resetSelection() {
+  dragging = false
+  sel.style.display = "none"
+  size.style.display = "none"
+  hint.style.display = "block"
 }
 
 function draw(sx0: number, sy0: number, sx1: number, sy1: number) {
@@ -61,12 +64,14 @@ document.addEventListener("mouseup", (e) => {
     return
   }
   console.log("[selector:js] submit rect", x0, y0, w, h)
-  ;(window as any).bridge.screenshot.submit({ x: x0, y: y0, width: w, height: h })
+  window.bridge.screenshot.submit({ x: x0, y: y0, width: w, height: h })
   console.log("[selector:js] submitted")
 })
 
 document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape") (window as any).bridge.screenshot.cancel()
+  if (e.key === "Escape") window.bridge.screenshot.cancel()
 })
 
 document.addEventListener("contextmenu", (e) => e.preventDefault())
+
+window.bridge.screenshot.onReset(resetSelection)

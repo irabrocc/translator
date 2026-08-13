@@ -2,15 +2,16 @@ import { contextBridge, ipcRenderer } from "electron"
 
 const api = {
   screenshot: {
-    start: () => ipcRenderer.send("screenshot:start"),
     submit: (rect: {
       x: number
       y: number
       width: number
       height: number
-      displayId: string
+      displayId?: string
     }) => ipcRenderer.send("screenshot:submit", rect),
     cancel: () => ipcRenderer.send("screenshot:cancel"),
+    onReset: (cb: () => void) =>
+      ipcRenderer.on("screenshot:reset", () => cb()),
   },
   overlay: {
     close: () => ipcRenderer.send("overlay:close"),
@@ -34,14 +35,10 @@ const api = {
   },
   settings: {
     get: () => ipcRenderer.invoke("settings:get"),
-    set: (patch: any) => ipcRenderer.invoke("settings:set", patch),
+    set: (patch: unknown) => ipcRenderer.invoke("settings:set", patch),
     reset: () => ipcRenderer.invoke("settings:reset"),
   },
-  tray: {
-    onUpdate: (cb: (info: { source: string; target: string }) => void) =>
-      ipcRenderer.on("tray:update", (_e, info) => cb(info)),
-  },
-  openExternal: (url: string) => ipcRenderer.send("open-external", url),
+  openExternal: () => ipcRenderer.send("open-external"),
   onOverlayResult: (
     cb: (r: {
       detected: string
@@ -49,6 +46,7 @@ const api = {
       translated: string
       sourceLabel: string
       targetLabel: string
+      loading?: boolean
       error?: string
     }) => void,
   ) => ipcRenderer.on("overlay:result", (_e, r) => cb(r)),

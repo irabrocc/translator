@@ -8,6 +8,25 @@ files:
 win:
   target: nsis
   icon: assets/tray-icon.png
+  artifactName: ${productName}-${version}-windows-${arch}.${ext}
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
+linux:
+  target:
+    - AppImage
+    - deb
+  icon: assets/tray-icon.png
+  category: Utility
+  executableName: screenshot-translator
+  syncDesktopName: true
+  synopsis: Screenshot OCR translator and math parser
+  description: Screenshot OCR translator and math parser powered by OpenCode Go
+  maintainer: Screenshot Translator Contributors <noreply@localhost>
+  artifactName: ${productName}-${version}-linux-${arch}.${ext}
+deb:
+  packageCategory: utils
+  priority: optional
+  recommends:
+    - libayatana-appindicator3-1
+    - gnome-shell-extension-appindicator
