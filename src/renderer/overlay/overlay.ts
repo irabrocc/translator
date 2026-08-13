@@ -9,9 +9,9 @@ const closeBtn = document.getElementById("close") as HTMLSpanElement
 
 export {}
 
-const bridge = (window as any).bridge
+const bridge = window.bridge
 
-bridge.onOverlayResult((r: any) => {
+bridge.onOverlayResult((r) => {
   if (r.loading) {
     loading.hidden = false
     content.hidden = true

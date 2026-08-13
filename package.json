@@ -3,8 +3,13 @@
   "version": "0.1.0",
   "description": "Multimodal screenshot translator using OpenCode Go (kimi-k2.7-code)",
   "main": "dist/main/index.js",
-  "author": "",
+  "desktopName": "ScreenshotTranslator.desktop",
+  "author": "Screenshot Translator Contributors",
   "license": "MIT",
+  "engines": {
+    "node": ">=22.12.0",
+    "npm": ">=10.0.0"
+  },
   "scripts": {
     "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
     "copy-assets": "node scripts/copy-assets.js",
@@ -14,15 +19,18 @@
     "watch": "tsc -p tsconfig.main.json --watch & tsc -p tsconfig.renderer.json --watch",
     "start": "npm run build && electron .",
     "dev": "npm run build && electron .",
-    "dist": "npm run build && electron-builder"
+    "dist": "npm run build && electron-builder",
+    "dist:linux": "npm run build && electron-builder --linux AppImage deb --x64",
+    "dist:win": "npm run build && electron-builder --win nsis --x64",
+    "pack:linux": "npm run build && electron-builder --linux dir --x64"
   },
   "dependencies": {
     "electron-store": "8.2.0"
   },
   "devDependencies": {
-    "electron": "33.2.1",
-    "electron-builder": "25.1.8",
-    "typescript": "5.6.3",
-    "@types/node": "22.10.2"
+    "@types/node": "22.10.2",
+    "electron": "42.9.0",
+    "electron-builder": "26.15.3",
+    "typescript": "5.6.3"
   }
 }

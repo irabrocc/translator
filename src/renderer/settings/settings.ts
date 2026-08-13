@@ -1,6 +1,6 @@
 export {}
 
-const bridge = (window as any).bridge
+const bridge = window.bridge
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) =>
   document.getElementById(id) as T
@@ -11,6 +11,7 @@ const endpoint = $("endpoint") as HTMLInputElement
 const scScreenshot = $("scScreenshot") as HTMLInputElement
 const scMath = $("scMath") as HTMLInputElement
 const scQuick = $("scQuick") as HTMLInputElement
+const scModel = $("scModel") as HTMLInputElement
 const scSource = $("scSource") as HTMLInputElement
 const scTarget = $("scTarget") as HTMLInputElement
 const curSource = $("curSource") as HTMLSelectElement
@@ -18,7 +19,7 @@ const curTarget = $("curTarget") as HTMLSelectElement
 const mathFormat = $("mathFormat") as HTMLSelectElement
 const statusEl = $("status") as HTMLDivElement
 
-function fillSelect(sel: HTMLSelectElement, langs: any[], currentId: string) {
+function fillSelect(sel: HTMLSelectElement, langs: LanguageDef[], currentId: string) {
   sel.innerHTML = ""
   for (const l of langs) {
     const o = document.createElement("option")
@@ -29,6 +30,10 @@ function fillSelect(sel: HTMLSelectElement, langs: any[], currentId: string) {
   }
 }
 
+function showError(error: unknown) {
+  statusEl.textContent = error instanceof Error ? error.message : String(error)
+}
+
 async function load() {
   const s = await bridge.settings.get()
   apiKey.value = s.goApiKey
@@ -37,6 +42,7 @@ async function load() {
   scScreenshot.value = s.shortcuts.screenshot
   scMath.value = s.shortcuts.math || ""
   scQuick.value = s.shortcuts.quickScreenshot || ""
+  scModel.value = s.shortcuts.cycleModel || ""
   scSource.value = s.shortcuts.cycleSource
   scTarget.value = s.shortcuts.cycleTarget
   fillSelect(curSource, s.sourceLanguages, s.currentSourceId)
@@ -58,6 +64,7 @@ async function save() {
       screenshot: scScreenshot.value.trim(),
       math: scMath.value.trim(),
       quickScreenshot: scQuick.value.trim(),
+      cycleModel: scModel.value.trim(),
       cycleSource: scSource.value.trim(),
       cycleTarget: scTarget.value.trim(),
     },
@@ -74,11 +81,11 @@ async function reset() {
   setTimeout(() => (statusEl.textContent = ""), 1500)
 }
 
-$("save").addEventListener("click", save)
-$("reset").addEventListener("click", reset)
+$("save").addEventListener("click", () => void save().catch(showError))
+$("reset").addEventListener("click", () => void reset().catch(showError))
 $("goLink").addEventListener("click", (e) => {
   e.preventDefault()
-  bridge.openExternal("https://opencode.ai/auth")
+  bridge.openExternal()
 })
 
-load()
+void load().catch(showError)
