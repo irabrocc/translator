@@ -54,7 +54,17 @@ interface MathResultData {
 }
 
 const IS_LINUX = process.platform === "linux"
-const USE_FLOATING_STATUS_BADGE = process.platform === "win32"
+
+const MODE_TRAY_ICONS = {
+  quick: {
+    oneX: "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAADsSURBVDhPY2CgNtCf72qgO98pQXe+cwMqdkoAyaGrhwP9+fYCuguctustcP6PHzsd15lvr4Gun0FvgdN+ZIUWS3z+R2zORMFI8tfl59tzwDXrznexQLcJpAEEHn588n/vw8NgjCyvM98pAMkApwJcBrSdmIQiDsOgcEEywLkBXQHMgAVXVoLZvuviyTMA5oVJZ+eSZwDFXiDKAL35jhXoCkB+Bjk9b28thmYsBjh7oCsghEEpE24AKFHoLnC+j64ID/6uNd9eAm4ACEAT03MsitHxd735ThEommEAnB/mOxVgZiR4hirAsJlSAABJ1nfwF4U31wAAAABJRU5ErkJggg==",
+    twoX: "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAFjSURBVFhH7ZctTANBEIUrkUgcSNJ095B1BzPgIEHWUQmuEllXj0GRWUGCwyBQBIFAoZEEhUQijww0zd27vZZrd5vmwks+0eybzrufvcy2WqusjqTbRqhvhIfzQf1EDnbwf6dqU9I143hkHX9Zx1kojOObtqQb2K8gTWsdv2JxQD4S4V3s+6Pxlb95ioJiHH9674RxfInmWBhH94XmevWhn/ksEkm3JgHGz75kiklH6HgSwAgN0BAb3aa5ADxEg4+j25Ps4f1pKurBOh9zBejdnWWzpB6s89GMAPob6V4flup8BAmA63VoRgDcARcvV6WaKoIEQGkIrKmiGQFwB/z1I6QECYDrdfgPsFoBrOydo8FHtAA6KKLBh37n8289rtdBR/ZcgHQdDbEpnReso0c0xUKn70JzlZ6CljWYVp4NrFAvdgidP7FvQb93gp6xMADVpyKfjOx3rdCpbpfFoEGtxsvWN46uM7mFtoOuAAAAAElFTkSuQmCC",
+  },
+  thinking: {
+    oneX: "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAADVSURBVDhPY2CgNrhZwmpwvZw14WY5awMyBouVsBqgq4eD+/kMAjfLWbffLGf7TwAfv1HJpoGun+FmGdt+mKKHkyww8P1ubYQhZazX79czcMA1XytjsUC25fOVDWAMAyD26x21KC65UcoWADfgRhlbARanwjWji0MwawPcAEhAoSsYWQbcKGerwFQAiQ300MduQAm7B6YC/BiUMuEGgBLFzTLW++iKcOEbZWzfr5RwScANAAFIYmJ9jq4YHYM03yxjjUDRDAOg/ABJVKgZCYZBchg2UwoAEzSkNmGupwkAAAAASUVORK5CYII=",
+    twoX: "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAFkSURBVFhHY2AYzOBGJZvG9XLWhJvlrA3kYLDeElYDdHPxgvv1DBw3y1jbb5Sxfb9ZzvafWvhGOdvyKyVcEuj2oQCQa2+WsV5H10w9zPr8ejm7A7q9YAD1+X1MTdTFN8rZ3mMNiZvlbNPRFdMOs25HsRzke2rHOSF8vZxdAeF7UNxjUURLfKOULQDugBtlbAXoCmiPWRsQIQDOt+gKUPHrHbX/P1/ZQDRG14+JSXQAyFBSALp+TDzUHHC/W/v/w0kWcPzuYB/csm/3j6DIgTC6fkxMogPQ8csNeXAHEBfn6HjUAaMOGHXAqAMGkwNulLNVYCrAj6nqAFBDEVMBfny3RQ5e7oPqCXR5QhjUZIc74H4+gwC6Appj9P7CzTK2/RiKaIXLWO+jWA4CoF4QvRqmOPsGN8tYI2jtCFD7E91eFAAKiZvlbMfRNVKO8fSKsIFrZSwW10tZMiBlBPkY5GOSLKY3AAAZAvwtBptmOAAAAABJRU5ErkJggg==",
+  },
+} as const
 
 app.setName("Screenshot Translator")
 if (process.platform === "win32") {
@@ -84,10 +94,8 @@ let tray: Tray | null = null
 let overlayWindow: BrowserWindow | null = null
 let mathWindow: BrowserWindow | null = null
 let settingsWindow: BrowserWindow | null = null
-let statusWindow: BrowserWindow | null = null
 let pendingOverlayData: OverlayResultData | null = null
 let pendingMathData: MathResultData | null = null
-let statusKeepAliveTimer: ReturnType<typeof setInterval> | null = null
 let translationRequestId = 0
 let mathRequestId = 0
 let translationAbortController: AbortController | null = null
@@ -101,6 +109,15 @@ function getAsset(name: string): string {
 }
 
 function makeTrayIcon(): Electron.NativeImage {
+  if (process.platform === "win32") {
+    const iconData = quickMode ? MODE_TRAY_ICONS.quick : MODE_TRAY_ICONS.thinking
+    const image = nativeImage.createFromDataURL(`data:image/png;base64,${iconData.oneX}`)
+    image.addRepresentation({
+      scaleFactor: 2,
+      dataURL: `data:image/png;base64,${iconData.twoX}`,
+    })
+    if (!image.isEmpty()) return image
+  }
   const preferred = IS_LINUX ? "tray-icon-linux.png" : "tray-icon.png"
   const image = nativeImage.createFromPath(getAsset(preferred))
   if (!image.isEmpty()) return image
@@ -192,9 +209,10 @@ function updateTrayMenu() {
       click: () => app.quit(),
     },
   ])
+  tray.setImage(makeTrayIcon())
   tray.setContextMenu(menu)
   tray.setToolTip(
-    `截图翻译 · ${quickMode ? "快速" : "思考"} · ${src.name} → ${tgt.name}`,
+    `截图翻译 · ${quickMode ? "快速" : "思考"} · ${s.model} · ${src.name} → ${tgt.name}`,
   )
 }
 
@@ -230,77 +248,6 @@ function registerShortcuts() {
   tryReg(s.shortcuts.cycleTarget, cycleTarget)
 }
 
-function ensureStatusWindow(): BrowserWindow {
-  if (statusWindow && !statusWindow.isDestroyed()) return statusWindow
-  const primary = screen.getPrimaryDisplay()
-  const w = 220
-  const h = 36
-  const wa = primary.workArea
-  const b = primary.bounds
-  const y = wa.y + wa.height + Math.max(0, (b.height - wa.y - wa.height - h) / 2)
-  statusWindow = new BrowserWindow({
-    x: wa.x + 8,
-    y: Math.min(y, b.y + b.height - h),
-    width: w,
-    height: h,
-    frame: false,
-    transparent: true,
-    alwaysOnTop: true,
-    skipTaskbar: true,
-    resizable: false,
-    focusable: false,
-    show: false,
-    webPreferences: {
-      preload: path.join(__dirname, "..", "preload", "preload.js"),
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true,
-    },
-  })
-  statusWindow.setAlwaysOnTop(true, "screen-saver")
-  statusWindow.setIgnoreMouseEvents(true, { forward: false })
-  loadRenderer(statusWindow, "status")
-  statusWindow.webContents.on("did-finish-load", () => {
-    pushStatusUpdate()
-  })
-  statusWindow.on("closed", () => {
-    statusWindow = null
-    if (statusKeepAliveTimer) {
-      clearInterval(statusKeepAliveTimer)
-      statusKeepAliveTimer = null
-    }
-  })
-
-  // Periodically re-assert z-order so the badge stays visible
-  // even after the Windows taskbar is clicked/focused.
-  statusKeepAliveTimer = setInterval(() => {
-    if (!statusWindow || statusWindow.isDestroyed()) return
-    statusWindow.setAlwaysOnTop(true, "screen-saver")
-    statusWindow.moveTop()
-  }, 2000)
-
-  return statusWindow
-}
-
-function statusBadgeInfo() {
-  return { model: getSettings().model || "—", quick: quickMode }
-}
-
-function pushStatusUpdate() {
-  if (!statusWindow || statusWindow.isDestroyed()) return
-  statusWindow.webContents.send("status:update", statusBadgeInfo())
-}
-
-function updateStatusBadge() {
-  // Linux uses the native StatusNotifierItem in the GNOME top bar. Keep the
-  // legacy floating badge only on Windows so the app never occupies the
-  // Ubuntu dock/taskbar merely to show persistent status.
-  if (!USE_FLOATING_STATUS_BADGE) return
-  const win = ensureStatusWindow()
-  if (!win.isVisible()) win.show()
-  pushStatusUpdate()
-}
-
 function triggerScreenshot() {
   console.log("[screenshot] Alt+S triggered, quickMode:", quickMode)
   if (!getSettings().goApiKey) {
@@ -310,7 +257,9 @@ function triggerScreenshot() {
     return
   }
   startSelection("translate").catch((error: unknown) => {
-    console.error("[screenshot] start selection failed", errorMessage(error))
+    const message = errorMessage(error)
+    console.error("[screenshot] start selection failed", message)
+    showNotification("截图启动失败", message)
   })
 }
 
@@ -323,7 +272,9 @@ function triggerMathCapture() {
     return
   }
   startSelection("math").catch((error: unknown) => {
-    console.error("[math] start selection failed", errorMessage(error))
+    const message = errorMessage(error)
+    console.error("[math] start selection failed", message)
+    showNotification("数学截图启动失败", message)
   })
 }
 
@@ -331,7 +282,6 @@ function toggleQuickMode() {
   quickMode = !quickMode
   console.log("[mode] quickMode toggled to:", quickMode)
   updateTrayMenu()
-  updateStatusBadge()
   showNotification(
     quickMode ? "快速模式" : "思考模式",
     quickMode ? "已切换至快速模式（无思考）。" : "已切换至思考模式。",
@@ -357,7 +307,6 @@ function cycleModel() {
   setSettings({ model: next })
   console.log(`[model] switched from ${current} to ${next}`)
   updateTrayMenu()
-  updateStatusBadge()
   showNotification("模型已切换", next, true)
 }
 
@@ -673,7 +622,6 @@ function openSettings() {
     // re-register shortcuts in case they changed
     registerShortcuts()
     updateTrayMenu()
-    updateStatusBadge()
   })
 }
 
@@ -769,7 +717,6 @@ function setupIpc() {
     const result = setSettings(patch)
     registerShortcuts()
     updateTrayMenu()
-    updateStatusBadge()
     return result
   })
   ipcMain.handle("settings:reset", (event) => {
@@ -777,7 +724,6 @@ function setupIpc() {
     const result = resetSettings()
     registerShortcuts()
     updateTrayMenu()
-    updateStatusBadge()
     return result
   })
 
@@ -788,10 +734,6 @@ function setupIpc() {
     })
   })
 
-  ipcMain.handle("status:get", (event) => {
-    assertWindowSender(event.sender, statusWindow)
-    return statusBadgeInfo()
-  })
 }
 
 app.whenReady().then(() => {
@@ -799,7 +741,6 @@ app.whenReady().then(() => {
   setupIpc()
   updateTrayMenu()
   registerShortcuts()
-  updateStatusBadge()
 
   // First-run: prompt for API key
   if (!getSettings().goApiKey) {
@@ -816,10 +757,6 @@ app.on("will-quit", () => {
   closeSelection()
   cancelTranslationRequest()
   cancelMathRequest()
-  if (statusKeepAliveTimer) {
-    clearInterval(statusKeepAliveTimer)
-    statusKeepAliveTimer = null
-  }
 })
 
 // Keep running in tray even when all windows closed

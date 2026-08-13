@@ -8,7 +8,7 @@ const api = {
       width: number
       height: number
       displayId?: string
-    }) => ipcRenderer.send("screenshot:submit", rect),
+    }) => ipcRenderer.sendSync("screenshot:submit", rect),
     cancel: () => ipcRenderer.send("screenshot:cancel"),
     onReset: (cb: () => void) =>
       ipcRenderer.on("screenshot:reset", () => cb()),
@@ -50,11 +50,6 @@ const api = {
       error?: string
     }) => void,
   ) => ipcRenderer.on("overlay:result", (_e, r) => cb(r)),
-  status: {
-    onUpdate: (cb: (info: { model: string; quick: boolean }) => void) =>
-      ipcRenderer.on("status:update", (_e, info) => cb(info)),
-    get: () => ipcRenderer.invoke("status:get"),
-  },
 }
 
 contextBridge.exposeInMainWorld("bridge", api)

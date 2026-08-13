@@ -9,6 +9,7 @@ const hint = document.getElementById("hint") as HTMLDivElement
 let startScreenX = 0
 let startScreenY = 0
 let dragging = false
+let submitting = false
 
 function toClient(sx: number, sy: number) {
   return { x: sx - window.screenX, y: sy - window.screenY }
@@ -16,6 +17,7 @@ function toClient(sx: number, sy: number) {
 
 function resetSelection() {
   dragging = false
+  submitting = false
   sel.style.display = "none"
   size.style.display = "none"
   hint.style.display = "block"
@@ -34,6 +36,11 @@ function draw(sx0: number, sy0: number, sx1: number, sy1: number) {
 }
 
 document.addEventListener("mousedown", (e) => {
+  if (submitting) {
+    e.preventDefault()
+    e.stopImmediatePropagation()
+    return
+  }
   if (e.button !== 0) return
   console.log("[selector:js] mousedown", e.screenX, e.screenY)
   dragging = true
@@ -64,14 +71,32 @@ document.addEventListener("mouseup", (e) => {
     return
   }
   console.log("[selector:js] submit rect", x0, y0, w, h)
+  submitting = true
   window.bridge.screenshot.submit({ x: x0, y: y0, width: w, height: h })
   console.log("[selector:js] submitted")
 })
 
 document.addEventListener("keydown", (e) => {
+  if (submitting) {
+    e.preventDefault()
+    e.stopImmediatePropagation()
+    return
+  }
   if (e.key === "Escape") window.bridge.screenshot.cancel()
 })
 
 document.addEventListener("contextmenu", (e) => e.preventDefault())
+
+document.addEventListener("wheel", (e) => {
+  if (!submitting) return
+  e.preventDefault()
+  e.stopImmediatePropagation()
+}, { capture: true, passive: false })
+
+document.addEventListener("auxclick", (e) => {
+  if (!submitting) return
+  e.preventDefault()
+  e.stopImmediatePropagation()
+}, { capture: true })
 
 window.bridge.screenshot.onReset(resetSelection)

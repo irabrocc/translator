@@ -71,10 +71,6 @@ interface BridgeApi {
   }
   openExternal(): void
   onOverlayResult(cb: (result: OverlayResultData) => void): void
-  status: {
-    onUpdate(cb: (info: { model: string; quick: boolean }) => void): void
-    get(): Promise<{ model: string; quick: boolean }>
-  }
 }
 
 interface Window {
