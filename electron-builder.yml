@@ -19,7 +19,6 @@ linux:
   icon: assets/tray-icon.png
   category: Utility
   executableName: screenshot-translator
-  syncDesktopName: true
   synopsis: Screenshot OCR translator and math parser
   description: Screenshot OCR translator and math parser powered by OpenCode Go
   maintainer: Screenshot Translator Contributors <noreply@localhost>
