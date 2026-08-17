@@ -32,6 +32,7 @@ export interface Settings {
   goApiKey: string
   model: string
   endpoint: string
+  launchAtLogin: boolean
   sourceLanguages: LanguageDef[]
   targetLanguages: LanguageDef[]
   currentSourceId: string
@@ -44,6 +45,7 @@ export const DEFAULT_SETTINGS: Settings = {
   goApiKey: "",
   model: "minimax-m3",
   endpoint: "",
+  launchAtLogin: false,
   sourceLanguages: BUILTIN_SOURCE_LANGUAGES,
   targetLanguages: BUILTIN_TARGET_LANGUAGES,
   currentSourceId: "auto",
@@ -114,6 +116,7 @@ function normalizeSettings(value: unknown): Settings {
     goApiKey: stringValue(data.goApiKey, DEFAULT_SETTINGS.goApiKey),
     model: stringValue(data.model, DEFAULT_SETTINGS.model, true),
     endpoint: stringValue(data.endpoint, DEFAULT_SETTINGS.endpoint),
+    launchAtLogin: booleanValue(data.launchAtLogin, DEFAULT_SETTINGS.launchAtLogin),
     sourceLanguages,
     targetLanguages,
     currentSourceId: sourceLanguages.some(({ id }) => id === requestedSourceId)
@@ -172,6 +175,10 @@ function normalizeLanguages(value: unknown, fallback: LanguageDef[]): LanguageDe
 function stringValue(value: unknown, fallback: string, requireValue = false): string {
   if (typeof value !== "string" || value.length > 10_000) return fallback
   return requireValue && !value.trim() ? fallback : value
+}
+
+function booleanValue(value: unknown, fallback: boolean): boolean {
+  return typeof value === "boolean" ? value : fallback
 }
 
 function asRecord(value: unknown): Record<string, unknown> {

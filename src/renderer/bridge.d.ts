@@ -8,6 +8,7 @@ interface RendererSettings {
   goApiKey: string
   model: string
   endpoint: string
+  launchAtLogin: boolean
   sourceLanguages: LanguageDef[]
   targetLanguages: LanguageDef[]
   currentSourceId: string

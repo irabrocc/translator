@@ -13,6 +13,8 @@ input:focus, select:focus { outline: none; border-color: #4aa3ff; }
 .row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
 .row span { width: 120px; color: #555; }
 .row input, .row select { flex: 1; }
+.check-row { display: flex; align-items: center; gap: 9px; margin-bottom: 0; font-weight: 400; cursor: pointer; }
+.check-row input { width: 16px; height: 16px; accent-color: #4aa3ff; }
 small { display: block; margin-top: 6px; color: #888; }
 a { color: #4aa3ff; cursor: pointer; }
 #endpoint { margin-top: 8px; }

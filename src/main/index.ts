@@ -715,6 +715,7 @@ function setupIpc() {
   ipcMain.handle("settings:set", (event, patch: unknown) => {
     assertWindowSender(event.sender, settingsWindow)
     const result = setSettings(patch)
+    syncLaunchAtLogin(result.launchAtLogin)
     registerShortcuts()
     updateTrayMenu()
     return result
@@ -722,6 +723,7 @@ function setupIpc() {
   ipcMain.handle("settings:reset", (event) => {
     assertWindowSender(event.sender, settingsWindow)
     const result = resetSettings()
+    syncLaunchAtLogin(result.launchAtLogin)
     registerShortcuts()
     updateTrayMenu()
     return result
@@ -736,7 +738,15 @@ function setupIpc() {
 
 }
 
+function syncLaunchAtLogin(enabled: boolean): void {
+  app.setLoginItemSettings({
+    openAtLogin: enabled,
+    path: process.execPath,
+  })
+}
+
 app.whenReady().then(() => {
+  syncLaunchAtLogin(getSettings().launchAtLogin)
   tray = new Tray(makeTrayIcon())
   setupIpc()
   updateTrayMenu()

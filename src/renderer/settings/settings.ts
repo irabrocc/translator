@@ -17,6 +17,7 @@ const scTarget = $("scTarget") as HTMLInputElement
 const curSource = $("curSource") as HTMLSelectElement
 const curTarget = $("curTarget") as HTMLSelectElement
 const mathFormat = $("mathFormat") as HTMLSelectElement
+const launchAtLogin = $("launchAtLogin") as HTMLInputElement
 const statusEl = $("status") as HTMLDivElement
 
 function fillSelect(sel: HTMLSelectElement, langs: LanguageDef[], currentId: string) {
@@ -48,6 +49,7 @@ async function load() {
   fillSelect(curSource, s.sourceLanguages, s.currentSourceId)
   fillSelect(curTarget, s.targetLanguages, s.currentTargetId)
   mathFormat.value = s.math?.outputFormat || "md"
+  launchAtLogin.checked = s.launchAtLogin
 }
 
 async function save() {
@@ -55,6 +57,7 @@ async function save() {
     goApiKey: apiKey.value.trim(),
     model: model.value || "minimax-m3",
     endpoint: endpoint.value.trim(),
+    launchAtLogin: launchAtLogin.checked,
     currentSourceId: curSource.value,
     currentTargetId: curTarget.value,
     math: {
